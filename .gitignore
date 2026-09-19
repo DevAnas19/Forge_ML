@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Model artifacts (large binary files shouldn't go in git)
+backend/artifacts/*
+!backend/artifacts/.gitkeep
+
+# OS
+.DS_Store
