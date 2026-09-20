@@ -24,6 +24,7 @@ class Experiment(Base):
     # experiments where metrics->>'f1' > 0.9" directly in SQL if needed.
     parameters = Column(JSONB, nullable=True)
     metrics = Column(JSONB, nullable=True)
+    label_classes = Column(JSONB, nullable=True)  # e.g. ["N", "Y"]
 
     status = Column(String, nullable=False, default="pending")  # pending / running / completed / failed
     training_time = Column(Float, nullable=True)

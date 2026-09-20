@@ -4,9 +4,6 @@ trainer.py
 The orchestration layer for Phase 2: ties together preprocessing (ml/preprocessing.py),
 splitting + model selection (ml/classification.py), and evaluation (evaluator.py)
 into one run_experiment() call, plus artifact saving.
-
-This mirrors profiler.py/validator.py's role in Phase 1 -- one clean entry
-point that main.py's endpoint calls.
 """
 
 import os
@@ -25,18 +22,18 @@ from app.services.evaluator import evaluate_classification
 ARTIFACTS_DIR = "artifacts"
 
 
+def build_artifact_path(model_name: str, experiment_id: str) -> str:
+    """
+    One shared naming rule, used both when SAVING an artifact (right after
+    training) and when LOOKING ONE UP (at register/predict time). Keeping
+    this in one function means the two can never drift out of sync.
+    """
+    safe_name = model_name.lower().replace(" ", "_")
+    filename = f"{safe_name}_{experiment_id}.pkl"
+    return os.path.join(ARTIFACTS_DIR, filename)
+
+
 def encode_target(y_train, y_test):
-    """
-    Encodes a text target ("Y"/"N", "Approved"/"Rejected", etc.) to 0/1.
-
-    Using LabelEncoder instead of a hardcoded {"N": 0, "Y": 1} map (like the
-    Kaggle version had) makes this work for ANY two-class target, not just
-    this one dataset -- important since ForgeML is meant to handle datasets
-    the user uploads, not just loan.csv.
-
-    Returns the encoded labels plus the encoder itself, so predictions can
-    later be decoded back to the original text labels.
-    """
     encoder = LabelEncoder()
     encoder.fit(y_train)
     y_train_encoded = encoder.transform(y_train)
@@ -89,15 +86,13 @@ def run_experiment(
         "random_seed": random_seed,
         "feature_count": len(feature_cols),
         "status": "completed",
-        "label_classes": label_encoder.classes_.tolist(),  # e.g. ["N", "Y"] -- 0 maps to classes_[0]
-        "pipeline": trained_pipeline,  # kept in memory, stripped before the API response
+        "label_classes": label_encoder.classes_.tolist(),
+        "pipeline": trained_pipeline,
     }
 
 
 def save_model_artifact(pipeline, model_name: str, experiment_id: str) -> str:
     os.makedirs(ARTIFACTS_DIR, exist_ok=True)
-    safe_name = model_name.lower().replace(" ", "_")
-    filename = f"{safe_name}_{experiment_id}.pkl"
-    artifact_path = os.path.join(ARTIFACTS_DIR, filename)
+    artifact_path = build_artifact_path(model_name, experiment_id)
     joblib.dump(pipeline, artifact_path)
     return artifact_path

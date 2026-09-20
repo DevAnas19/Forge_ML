@@ -1,9 +1,7 @@
 """
 schemas.py
 
-Pydantic models define the *shape* of API requests/responses -- FastAPI
-uses them to validate incoming JSON automatically and reject bad requests
-with a clear 422 error before your route code even runs.
+Pydantic models define the *shape* of API requests/responses.
 """
 
 from typing import List
@@ -18,3 +16,7 @@ class ExperimentRequest(BaseModel):
     model_names: List[str]
     test_size: float = 0.2
     random_seed: int = 42
+
+
+class RegisterModelRequest(BaseModel):
+    experiment_id: str
