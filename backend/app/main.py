@@ -4,26 +4,37 @@ main.py
 ForgeML backend entry point.
 
 Phase 1: dataset upload -> profile + structural validation.
-Phase 2 (current): run one or more classification experiments on an
-uploaded dataset -- preprocessing, training, evaluation.
-
-No database yet (Phase 3) -- results are returned directly, not persisted.
-Because there's no persisted dataset to reference by ID yet, the experiment
-endpoint re-accepts the CSV file directly, alongside the experiment settings.
-This will get cleaner once Phase 3 adds Postgres.
+Phase 2: run classification experiments -- preprocessing, training, evaluation.
+Phase 3 (current): persistence. Datasets are now saved to disk + a database
+row; experiments reference a dataset_id instead of re-uploading the file,
+and results are saved to Postgres so experiment history survives a restart.
 """
 
-from typing import List
+import os
+import uuid
 
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from sqlalchemy.orm import Session
 import pandas as pd
+
+from app.core.database import engine, Base, get_db
+import app.models
+from app.models.dataset import Dataset
+from app.models.experiment import Experiment
+from app.core.schemas import ExperimentRequest
 
 from app.services.profiler import profile_dataset
 from app.services.validator import validate_dataset
-from app.ml.classification import get_classification_model  # noqa: F401 (keeps model registry importable from here too)
 from app.services.trainer import run_experiment
 
+DATASET_STORAGE_DIR = "storage/datasets"
+
 app = FastAPI(title="ForgeML API")
+
+
+@app.on_event("startup")
+def create_tables():
+    Base.metadata.create_all(bind=engine)
 
 
 @app.get("/")
@@ -31,59 +42,148 @@ def root():
     return {"status": "ForgeML backend running"}
 
 
+def serialize_experiment(exp: Experiment) -> dict:
+    return {
+        "experiment_id": str(exp.id),
+        "dataset_id": str(exp.dataset_id),
+        "model_name": exp.model_name,
+        "hyperparameters": exp.parameters,
+        "metrics": exp.metrics,
+        "status": exp.status,
+        "training_time": exp.training_time,
+        "timestamp": exp.created_at.isoformat() if exp.created_at else None,
+    }
+
+
+def serialize_dataset(ds: Dataset) -> dict:
+    return {
+        "dataset_id": str(ds.id),
+        "name": ds.name,
+        "rows": ds.rows,
+        "columns": ds.columns,
+        "target_column": ds.target_column,
+        "task_type": ds.task_type,
+        "created_at": ds.created_at.isoformat() if ds.created_at else None,
+    }
+
+
 @app.post("/api/datasets/upload")
-async def upload_dataset(file: UploadFile = File(...)):
-    """
-    Accepts a CSV file, profiles it, and runs structural validation
-    (no target column yet -- that comes in a later phase).
-    """
+async def upload_dataset(file: UploadFile = File(...), db: Session = Depends(get_db)):
     df = pd.read_csv(file.file)
 
     profile = profile_dataset(df, dataset_name=file.filename)
-    validation = validate_dataset(df)  # target_column=None -> structural checks only
+    validation = validate_dataset(df)
+
+    os.makedirs(DATASET_STORAGE_DIR, exist_ok=True)
+    dataset_id = uuid.uuid4()
+    file_path = os.path.join(DATASET_STORAGE_DIR, f"{dataset_id}.csv")
+    df.to_csv(file_path, index=False)
+
+    dataset_row = Dataset(
+        id=dataset_id,
+        name=file.filename,
+        file_path=file_path,
+        rows=profile["basic_info"]["rows"],
+        columns=profile["basic_info"]["columns"],
+    )
+    db.add(dataset_row)
+    db.commit()
+    db.refresh(dataset_row)
 
     return {
+        "dataset": serialize_dataset(dataset_row),
         "profile": profile,
         "validation": validation,
     }
 
 
-@app.post("/api/experiments")
-async def create_experiments(
-    file: UploadFile = File(...),
-    target_column: str = Form(...),
-    numerical_columns: str = Form(...),   # comma-separated, e.g. "ApplicantIncome,LoanAmount"
-    categorical_columns: str = Form(...), # comma-separated, e.g. "Gender,Education"
-    model_names: str = Form(...),         # comma-separated, e.g. "logistic_regression,random_forest,xgboost"
-    test_size: float = Form(0.2),
-    random_seed: int = Form(42),
-):
-    """
-    Runs one experiment per requested model on the uploaded dataset and
-    returns the comparison list (spec section 10). Trained pipelines stay
-    in server memory only for now -- there's no artifact-saving endpoint
-    yet, that's the next thing to wire up once this works end to end.
-    """
-    df = pd.read_csv(file.file)
+@app.get("/api/datasets")
+def list_datasets(db: Session = Depends(get_db)):
+    datasets = db.query(Dataset).order_by(Dataset.created_at.desc()).all()
+    return [serialize_dataset(d) for d in datasets]
 
-    numerical_cols = [c.strip() for c in numerical_columns.split(",") if c.strip()]
-    categorical_cols = [c.strip() for c in categorical_columns.split(",") if c.strip()]
-    requested_models = [m.strip() for m in model_names.split(",") if m.strip()]
+
+@app.get("/api/datasets/{dataset_id}")
+def get_dataset(dataset_id: str, db: Session = Depends(get_db)):
+    try:
+        dataset_uuid = uuid.UUID(dataset_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid dataset_id format")
+
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_uuid).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    df = pd.read_csv(dataset.file_path)
+    profile = profile_dataset(df, dataset_name=dataset.name)
+
+    return {
+        "dataset": serialize_dataset(dataset),
+        "profile": profile,
+    }
+
+
+@app.post("/api/experiments")
+def create_experiments(request: ExperimentRequest, db: Session = Depends(get_db)):
+    try:
+        dataset_uuid = uuid.UUID(request.dataset_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid dataset_id format")
+
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_uuid).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    df = pd.read_csv(dataset.file_path)
+
+    dataset.target_column = request.target_column
+    dataset.task_type = "classification"
+    db.commit()
 
     results = []
-    for model_name in requested_models:
+    for model_name in request.model_names:
         result = run_experiment(
             df,
             model_name=model_name,
-            target_column=target_column,
-            numerical_cols=numerical_cols,
-            categorical_cols=categorical_cols,
-            test_size=test_size,
-            random_seed=random_seed,
+            target_column=request.target_column,
+            numerical_cols=request.numerical_columns,
+            categorical_cols=request.categorical_columns,
+            test_size=request.test_size,
+            random_seed=request.random_seed,
         )
-        # Strip the in-memory pipeline object before returning -- it's not
-        # JSON-serializable and isn't meant to leave the server anyway.
-        result_for_response = {k: v for k, v in result.items() if k != "pipeline"}
-        results.append(result_for_response)
+
+        experiment_row = Experiment(
+            dataset_id=dataset.id,
+            model_name=result["model_name"],
+            parameters=result["hyperparameters"],
+            metrics=result["metrics"],
+            status=result["status"],
+            training_time=result["training_time"],
+        )
+        db.add(experiment_row)
+        db.commit()
+        db.refresh(experiment_row)
+
+        results.append(serialize_experiment(experiment_row))
 
     return {"experiments": results}
+
+
+@app.get("/api/experiments")
+def list_experiments(db: Session = Depends(get_db)):
+    experiments = db.query(Experiment).order_by(Experiment.created_at.desc()).all()
+    return [serialize_experiment(e) for e in experiments]
+
+
+@app.get("/api/experiments/{experiment_id}")
+def get_experiment(experiment_id: str, db: Session = Depends(get_db)):
+    try:
+        experiment_uuid = uuid.UUID(experiment_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid experiment_id format")
+
+    experiment = db.query(Experiment).filter(Experiment.id == experiment_uuid).first()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+
+    return serialize_experiment(experiment)
