@@ -36,6 +36,16 @@ DATASET_STORAGE_DIR = "storage/datasets"
 
 app = FastAPI(title="ForgeML API")
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # the Next.js dev server -- tighten this to your real domain in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.on_event("startup")
 def create_tables():
