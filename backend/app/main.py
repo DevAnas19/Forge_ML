@@ -30,6 +30,7 @@ from app.core.schemas import ExperimentRequest, RegisterModelRequest
 from app.services.profiler import profile_dataset
 from app.services.validator import validate_dataset
 from app.services.trainer import run_experiment, save_model_artifact, build_artifact_path
+from app.services.explainer import compute_global_importance, explain_prediction
 
 DATASET_STORAGE_DIR = "storage/datasets"
 
@@ -312,3 +313,54 @@ def predict(model_id: str, payload: dict = Body(...), db: Session = Depends(get_
         "prediction": predicted_label,
         "probability": predicted_probability,
     }
+
+@app.get("/api/models/{model_id}/explain")
+def explain_model_global(model_id: str, db: Session = Depends(get_db)):
+    try:
+        model_uuid = uuid.UUID(model_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid model_id format")
+
+    model = db.query(RegisteredModel).filter(RegisteredModel.id == model_uuid).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    experiment = db.query(Experiment).filter(Experiment.id == model.experiment_id).first()
+    dataset = db.query(Dataset).filter(Dataset.id == experiment.dataset_id).first()
+
+    if not os.path.exists(model.artifact_path):
+        raise HTTPException(status_code=500, detail="Model artifact file is missing from disk")
+
+    pipeline = joblib.load(model.artifact_path)
+    raw_df = pd.read_csv(dataset.file_path)
+
+    return compute_global_importance(pipeline, model.name, raw_df)
+
+
+@app.post("/api/models/{model_id}/explain")
+def explain_model_prediction(model_id: str, payload: dict = Body(...), db: Session = Depends(get_db)):
+    try:
+        model_uuid = uuid.UUID(model_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid model_id format")
+
+    model = db.query(RegisteredModel).filter(RegisteredModel.id == model_uuid).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    experiment = db.query(Experiment).filter(Experiment.id == model.experiment_id).first()
+    dataset = db.query(Dataset).filter(Dataset.id == experiment.dataset_id).first()
+
+    if not os.path.exists(model.artifact_path):
+        raise HTTPException(status_code=500, detail="Model artifact file is missing from disk")
+
+    pipeline = joblib.load(model.artifact_path)
+    raw_df = pd.read_csv(dataset.file_path)
+    input_row_df = pd.DataFrame([payload])
+
+    try:
+        result = explain_prediction(pipeline, model.name, input_row_df, raw_df)
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=f"Missing expected feature in input: {e}")
+
+    return result
