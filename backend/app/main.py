@@ -32,6 +32,15 @@ from app.services.validator import validate_dataset
 from app.services.trainer import run_experiment, save_model_artifact, build_artifact_path
 from app.services.explainer import compute_global_importance, explain_prediction
 
+from app.services.llm import analyze_dataset_profile
+from app.core.schemas import DatasetAnalysisResponse
+from pydantic import ValidationError
+
+from app.services.llm import analyze_dataset_profile, create_experiment_plan, VALID_MODEL_NAMES
+from app.core.schemas import ExperimentPlanRequest, ExperimentPlanResponse
+
+from app.services.llm import analyze_experiment_results
+
 DATASET_STORAGE_DIR = "storage/datasets"
 
 app = FastAPI(title="ForgeML API")
@@ -374,3 +383,111 @@ def explain_model_prediction(model_id: str, payload: dict = Body(...), db: Sessi
         raise HTTPException(status_code=400, detail=f"Missing expected feature in input: {e}")
 
     return result
+
+@app.post("/api/assistant/analyze-dataset")
+def analyze_dataset_endpoint(payload: dict = Body(...), db: Session = Depends(get_db)):
+    dataset_id = payload.get("dataset_id")
+    if not dataset_id:
+        raise HTTPException(status_code=400, detail="dataset_id is required")
+
+    try:
+        dataset_uuid = uuid.UUID(dataset_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid dataset_id format")
+
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_uuid).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    df = pd.read_csv(dataset.file_path)
+    profile = profile_dataset(df, dataset_name=dataset.name)
+
+    try:
+        raw_result = analyze_dataset_profile(profile)
+        validated = DatasetAnalysisResponse(**raw_result)
+    except Exception as e:
+        # Covers both a malformed JSON response from the LLM AND a
+        # response that IS valid JSON but doesn't match our expected
+        # shape (spec section 17: never trust LLM output blindly --
+        # validate it before it reaches the user).
+        raise HTTPException(
+            status_code=502,
+            detail=f"LLM returned an unusable response: {str(e)}"
+        )
+
+    return validated.model_dump()
+
+@app.post("/api/assistant/create-plan")
+def create_plan_endpoint(request: ExperimentPlanRequest, db: Session = Depends(get_db)):
+    try:
+        dataset_uuid = uuid.UUID(request.dataset_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid dataset_id format")
+
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_uuid).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    df = pd.read_csv(dataset.file_path)
+    profile = profile_dataset(df, dataset_name=dataset.name)
+
+    try:
+        raw_plan = create_experiment_plan(request.goal, profile)
+        plan = ExperimentPlanResponse(**raw_plan)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"LLM returned an unusable plan: {str(e)}")
+
+    # Structural validation (right shape) is NOT the same as semantic
+    # validation (right VALUES). A plan can be perfectly valid JSON matching
+    # our schema and still name a target column that doesn't exist in this
+    # dataset, or a model we don't actually support -- so check both,
+    # separately, before this plan is trusted enough to return.
+    all_columns = (
+        profile["column_types"]["numerical_columns"]
+        + profile["column_types"]["categorical_columns"]
+    )
+    if plan.target not in all_columns:
+        raise HTTPException(
+            status_code=502,
+            detail=f"LLM proposed an invalid target column: '{plan.target}'"
+        )
+
+    invalid_models = [m for m in plan.models if m not in VALID_MODEL_NAMES]
+    if invalid_models:
+        raise HTTPException(
+            status_code=502,
+            detail=f"LLM proposed unsupported model(s): {invalid_models}"
+        )
+
+    return plan.model_dump()
+
+@app.post("/api/assistant/analyze-experiments")
+def analyze_experiments_endpoint(payload: dict = Body(...), db: Session = Depends(get_db)):
+    dataset_id = payload.get("dataset_id")
+    if not dataset_id:
+        raise HTTPException(status_code=400, detail="dataset_id is required")
+
+    try:
+        dataset_uuid = uuid.UUID(dataset_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid dataset_id format")
+
+    experiments = (
+        db.query(Experiment)
+        .filter(Experiment.dataset_id == dataset_uuid, Experiment.status == "completed")
+        .order_by(Experiment.created_at.desc())
+        .all()
+    )
+
+    if not experiments:
+        raise HTTPException(status_code=404, detail="No completed experiments found for this dataset")
+
+    # Same principle as everywhere else -- pull real data OUT of the
+    # database and hand it to the LLM as read-only context. The LLM never
+    # touches the database directly, and never sees anything except what
+    # we've already computed and stored ourselves.
+    experiment_dicts = [serialize_experiment(e) for e in experiments]
+
+    analysis_text = analyze_experiment_results(experiment_dicts)
+
+    return {"analysis": analysis_text}

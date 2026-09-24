@@ -16,3 +16,5 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://forgeml:forgeml123@localhost:5432/forgeml_db"  # local dev fallback only
 )
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")

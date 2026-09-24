@@ -20,3 +20,19 @@ class ExperimentRequest(BaseModel):
 
 class RegisterModelRequest(BaseModel):
     experiment_id: str
+
+class DatasetAnalysisResponse(BaseModel):
+    recommended_preprocessing: dict
+    potential_risks: List[str]
+
+class ExperimentPlanRequest(BaseModel):
+    dataset_id: str
+    goal: str
+
+
+class ExperimentPlanResponse(BaseModel):
+    task: str
+    target: str
+    models: List[str]
+    preprocessing: dict
+    metrics: List[str]
