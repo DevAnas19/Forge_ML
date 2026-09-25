@@ -72,3 +72,42 @@ export async function getModels(): Promise<ModelSummary[]> {
   if (!res.ok) throw new Error("Failed to fetch models");
   return res.json();
 }
+
+export async function analyzeDataset(datasetId: string): Promise<{
+  recommended_preprocessing: { numerical: string[]; categorical: string[] };
+  potential_risks: string[];
+}> {
+  const res = await fetch(`${API_URL}/api/assistant/analyze-dataset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dataset_id: datasetId }),
+  });
+  if (!res.ok) throw new Error("Failed to analyze dataset");
+  return res.json();
+}
+
+export async function createPlan(datasetId: string, goal: string): Promise<{
+  task: string;
+  target: string;
+  models: string[];
+  preprocessing: { numerical: string[]; categorical: string[] };
+  metrics: string[];
+}> {
+  const res = await fetch(`${API_URL}/api/assistant/create-plan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dataset_id: datasetId, goal }),
+  });
+  if (!res.ok) throw new Error("Failed to create plan");
+  return res.json();
+}
+
+export async function analyzeExperiments(datasetId: string): Promise<{ analysis: string }> {
+  const res = await fetch(`${API_URL}/api/assistant/analyze-experiments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dataset_id: datasetId }),
+  });
+  if (!res.ok) throw new Error("Failed to analyze experiments");
+  return res.json();
+}

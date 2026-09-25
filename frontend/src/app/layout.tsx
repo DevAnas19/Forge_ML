@@ -22,6 +22,7 @@ export default function RootLayout({
           <Link href="/experiments" className="text-sm text-gray-600 hover:text-black">Experiments</Link>
           <Link href="/models" className="text-sm text-gray-600 hover:text-black">Models</Link>
           <Link href="/playground" className="text-sm text-gray-600 hover:text-black">Playground</Link>
+          <Link href="/assistant" className="text-sm text-gray-600 hover:text-black">Assistant</Link>
         </nav>
         {children}
       </body>
