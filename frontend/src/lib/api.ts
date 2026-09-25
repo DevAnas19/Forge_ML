@@ -1,6 +1,14 @@
 import { DatasetSummary, ExperimentSummary, ModelSummary } from "@/types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
+// Server Components run inside the Docker network and must use the
+// service name; the browser runs on the host machine and can only reach
+// the port Docker mapped out to localhost. Same code, two different
+// audiences, so pick the right base URL based on where this code is
+// actually executing.
+const API_URL =
+  typeof window === "undefined"
+    ? process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL
+    : process.env.NEXT_PUBLIC_API_URL;
 
 export async function getDatasets(): Promise<DatasetSummary[]> {
   const res = await fetch(`${API_URL}/api/datasets`, { cache: "no-store" });
