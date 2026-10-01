@@ -56,17 +56,31 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-def create_tables():
+from contextlib import asynccontextmanager
+from sqlalchemy import text
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
 
-    with engine.begin() as conn:
-        columns = conn.execute(
-            text("SELECT column_name FROM information_schema.columns WHERE table_name = 'experiments'")
-        ).scalars().all()
-        if "label_classes" not in columns:
-            conn.execute(text("ALTER TABLE experiments ADD COLUMN label_classes JSONB"))
+    # One-time migration safety net for the real Postgres database, in case
+    # it was created before label_classes existed on the Experiment model.
+    # Skipped for SQLite (used only in tests), since information_schema is
+    # Postgres-specific, and a fresh SQLite test database always has the
+    # column already from create_all() above.
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as conn:
+            columns = conn.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name = 'experiments'")
+            ).scalars().all()
+            if "label_classes" not in columns:
+                conn.execute(text("ALTER TABLE experiments ADD COLUMN label_classes JSONB"))
 
+    yield
+
+
+app = FastAPI(title="ForgeML API", lifespan=lifespan)
 
 @app.get("/")
 def root():
@@ -322,7 +336,7 @@ def predict(model_id: str, payload: dict = Body(...), db: Session = Depends(get_
     try:
         predicted_class_index = int(pipeline.predict(input_df)[0])
         probabilities = pipeline.predict_proba(input_df)[0]
-    except KeyError as e:
+    except (KeyError, ValueError) as e:
         raise HTTPException(status_code=400, detail=f"Missing expected feature in input: {e}")
 
     predicted_label = label_classes[predicted_class_index]

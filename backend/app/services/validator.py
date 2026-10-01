@@ -40,7 +40,7 @@ def validate_structure(df: pd.DataFrame) -> list:
         "detail": f"Constant columns: {constant_cols}" if constant_cols else "No constant columns"
     })
 
-    categorical_cols = df.select_dtypes(include="object").columns.tolist()
+    categorical_cols = df.select_dtypes(include=["object", "string"]).columns.tolist()
     high_cardinality = [
         col for col in categorical_cols
         if df[col].nunique() > HIGH_CARDINALITY_RATIO * len(df)

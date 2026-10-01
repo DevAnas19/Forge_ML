@@ -25,7 +25,7 @@ def get_basic_info(df: pd.DataFrame) -> dict:
 def get_column_types(df: pd.DataFrame) -> dict:
     """Step 2: split columns into numerical vs categorical."""
     numerical = df.select_dtypes(include=np.number).columns.tolist()
-    categorical = df.select_dtypes(include="object").columns.tolist()
+    categorical = df.select_dtypes(include=["object", "string"]).columns.tolist()
     return {
         "numerical_columns": numerical,
         "categorical_columns": categorical,
