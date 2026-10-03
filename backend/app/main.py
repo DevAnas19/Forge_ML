@@ -59,6 +59,11 @@ async def lifespan(app: FastAPI):
             if "file_content" not in dataset_columns:
                 conn.execute(text("ALTER TABLE datasets ADD COLUMN file_content TEXT"))
 
+            # file_path used to be required; it's now optional since content
+            # lives in file_content instead -- relax the old constraint.
+            # Safe to run every startup, even once it's already nullable.
+            conn.execute(text("ALTER TABLE datasets ALTER COLUMN file_path DROP NOT NULL"))
+
     yield
 
 
