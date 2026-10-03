@@ -21,9 +21,11 @@ class ExperimentRequest(BaseModel):
 class RegisterModelRequest(BaseModel):
     experiment_id: str
 
+
 class DatasetAnalysisResponse(BaseModel):
     recommended_preprocessing: dict
     potential_risks: List[str]
+
 
 class ExperimentPlanRequest(BaseModel):
     dataset_id: str

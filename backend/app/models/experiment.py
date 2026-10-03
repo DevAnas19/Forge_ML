@@ -2,19 +2,19 @@
 experiment.py
 
 SQLAlchemy model for the `experiments` table (spec section 22).
+
+artifact_data stores the trained pipeline's serialized bytes directly in
+Postgres -- same reasoning as Dataset.file_content: local disk doesn't
+survive a restart on Render's free tier, Postgres does.
 """
 
 import uuid
-from sqlalchemy import Column, String, Float, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, String, Float, DateTime, ForeignKey, JSON, LargeBinary
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 
 from app.core.database import Base
 
-# JSON().with_variant(JSONB, "postgresql") means: use real JSONB when
-# running against Postgres (production, and the docker-compose setup),
-# but fall back to plain JSON everywhere else -- specifically so SQLite
-# (used only in tests) can also create this table.
 JSONType = JSON().with_variant(JSONB, "postgresql")
 
 
@@ -27,6 +27,7 @@ class Experiment(Base):
     parameters = Column(JSONType, nullable=True)
     metrics = Column(JSONType, nullable=True)
     label_classes = Column(JSONType, nullable=True)
+    artifact_data = Column(LargeBinary, nullable=True)  # serialized (joblib) trained pipeline
     status = Column(String, nullable=False, default="pending")
     training_time = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

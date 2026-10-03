@@ -3,10 +3,13 @@ trainer.py
 
 The orchestration layer for Phase 2: ties together preprocessing (ml/preprocessing.py),
 splitting + model selection (ml/classification.py), and evaluation (evaluator.py)
-into one run_experiment() call, plus artifact saving.
+into one run_experiment() call.
+
+Artifact "saving" now means serializing to bytes (for storage in Postgres),
+not writing to the local filesystem -- see Experiment.artifact_data.
 """
 
-import os
+import io
 import time
 import uuid
 from datetime import datetime, timezone
@@ -18,19 +21,6 @@ from sklearn.preprocessing import LabelEncoder
 from app.ml.preprocessing import build_preprocessing_pipeline
 from app.ml.classification import get_classification_model, split_data
 from app.services.evaluator import evaluate_classification
-
-ARTIFACTS_DIR = "artifacts"
-
-
-def build_artifact_path(model_name: str, experiment_id: str) -> str:
-    """
-    One shared naming rule, used both when SAVING an artifact (right after
-    training) and when LOOKING ONE UP (at register/predict time). Keeping
-    this in one function means the two can never drift out of sync.
-    """
-    safe_name = model_name.lower().replace(" ", "_")
-    filename = f"{safe_name}_{experiment_id}.pkl"
-    return os.path.join(ARTIFACTS_DIR, filename)
 
 
 def encode_target(y_train, y_test):
@@ -48,6 +38,23 @@ def train_model(preprocessor, model, X_train, y_train):
     ])
     full_pipeline.fit(X_train, y_train)
     return full_pipeline
+
+
+def serialize_pipeline(pipeline) -> bytes:
+    """
+    Serializes a trained pipeline to raw bytes using joblib, entirely in
+    memory (no file written to disk) -- these bytes are what gets stored
+    directly in the experiments.artifact_data column.
+    """
+    buffer = io.BytesIO()
+    joblib.dump(pipeline, buffer)
+    return buffer.getvalue()
+
+
+def deserialize_pipeline(data: bytes):
+    """The inverse of serialize_pipeline() -- used at predict/explain time."""
+    buffer = io.BytesIO(data)
+    return joblib.load(buffer)
 
 
 def run_experiment(
@@ -89,10 +96,3 @@ def run_experiment(
         "label_classes": label_encoder.classes_.tolist(),
         "pipeline": trained_pipeline,
     }
-
-
-def save_model_artifact(pipeline, model_name: str, experiment_id: str) -> str:
-    os.makedirs(ARTIFACTS_DIR, exist_ok=True)
-    artifact_path = build_artifact_path(model_name, experiment_id)
-    joblib.dump(pipeline, artifact_path)
-    return artifact_path
