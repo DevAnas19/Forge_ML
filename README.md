@@ -1,20 +1,145 @@
-# ForgeML
+<div align="center">
 
-**Intelligent ML Experimentation & Deployment Platform**
+# 🔨 ForgeML
 
-A full-stack MLOps platform that takes a user from a raw CSV to a trained,
-evaluated, explainable, and deployable ML model — with an LLM-assisted
-planning and analysis layer on top.
+### Intelligent ML Experimentation & Deployment Platform
 
-Built as a portfolio project to demonstrate the complete ML lifecycle:
-data profiling, validation, preprocessing, model training, experiment
-tracking, model explainability, a model registry, a prediction API, and
-LLM-assisted workflows — all behind a real full-stack application, not
-just notebooks.
+Go from a raw CSV to a trained, evaluated, explainable, and deployable ML model — with an LLM-assisted planning and analysis layer on top.
+
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688.svg?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black.svg?style=flat&logo=next.js&logoColor=white)](https://nextjs.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-database-4169E1.svg?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED.svg?style=flat&logo=docker&logoColor=white)](https://www.docker.com)
+[![scikit--learn](https://img.shields.io/badge/scikit--learn-ML-F7931E.svg?style=flat&logo=scikit-learn&logoColor=white)](https://scikit-learn.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+🔗 **Live App**
+👉 [https://forge-ml-gamma.vercel.app](https://forge-ml-gamma.vercel.app)
+📡 **API Docs**
+👉 [https://forge-ml.onrender.com/docs](https://forge-ml.onrender.com/docs)
+
+[Key Features](#-key-features) •
+[Architecture](#%EF%B8%8F-system-architecture) •
+[Screenshots](#%EF%B8%8F-screenshots) •
+[Getting Started](#-getting-started) •
+[API](#-api-endpoints-overview) •
+[Roadmap](#%EF%B8%8F-development-roadmap)
+
+</div>
 
 ---
 
-## Screenshots
+## 📖 What is ForgeML?
+
+**ForgeML** is a full-stack, real-world MLOps platform, not just a notebook or a tutorial clone.
+
+It covers the parts of the ML lifecycle that most portfolio projects skip entirely:
+
+- Automated dataset profiling and validation
+- A proper preprocessing pipeline (no data leakage)
+- Multi-model training and comparison, tracked and persisted
+- A model registry with versioning
+- A real prediction API
+- SHAP-based explainability, global and per-prediction
+- An LLM assistant layer — with its output validated, never blindly trusted
+
+Whether you're exploring:
+
+- A **loan approval / credit risk** classifier
+- A **churn prediction** model
+- Any other **tabular classification** problem
+
+👉 **ForgeML gives you upload-to-prediction, end to end, with nothing hidden in a notebook.**
+
+> **Note on the live demo:** the backend runs on Render's free tier, which
+> spins down after 15 minutes of inactivity. The first request after it's
+> been idle can take 30–60 seconds to wake up — that's a free-tier
+> tradeoff, not a bug.
+
+---
+
+## 🌟 Key Features
+
+| Feature | What It Means for You |
+|---|---|
+| ⚡ **Full ML Lifecycle** | Upload → profile → validate → train → compare → register → predict → explain, all through real endpoints |
+| 🧪 **Multi-Model Training** | Logistic Regression, Random Forest, XGBoost, trained through one shared pluggable interface |
+| 🔁 **Reproducible Experiments** | Every run persisted to Postgres with a stored random seed — same inputs, same metrics, every time |
+| 📦 **Model Registry** | Register a trained experiment as a versioned model, artifact and all |
+| 🔮 **Prediction API** | Raw JSON in, decoded prediction + probability out |
+| 🔍 **SHAP Explainability** | Global feature importance, and signed per-feature contributions for a single prediction |
+| 🤖 **AI Assistant** | LLM-backed dataset analysis, experiment planning, and results explanation — with every response validated before it's trusted |
+| ✅ **34 Passing Tests** | Profiling, validation, training, and API endpoints, including error paths |
+| 🐳 **Dockerized** | One `docker compose up` brings up Postgres, backend, and frontend together |
+| ☁️ **Actually Deployed** | Live on Render (backend + Postgres) and Vercel (frontend), not just runnable locally |
+
+---
+
+## 🏗️ System Architecture
+
+The system follows a layered architecture — frontend talks only to the API, the API talks to dedicated services for each concern (profiling, validation, training, explaining, LLM calls), and everything persists to one Postgres database.
+
+```mermaid
+flowchart TD
+    User[User's Browser] -->|HTTP| Frontend[Next.js Frontend on Vercel<br/>Dashboard · Datasets · Experiments · Models · Playground · Assistant]
+    Frontend -->|REST API| Backend[FastAPI Backend on Render]
+
+    Backend --> Profiler[Profiler Service<br/>pandas-based dataset profiling]
+    Backend --> Validator[Validator Service<br/>structural + target checks]
+    Backend --> Trainer[Trainer Service<br/>scikit-learn + XGBoost pipelines]
+    Backend --> Explainer[Explainer Service<br/>SHAP]
+    Backend --> LLM[LLM Service<br/>Groq / Llama 3.3]
+
+    Backend --> DB[(PostgreSQL on Render<br/>datasets · experiments · models<br/>CSV content + model artifacts stored as columns)]
+
+    LLM -.->|validated JSON only| Backend
+
+    subgraph "Local Dev (Docker Compose)"
+        LocalFrontend[Frontend container]
+        LocalBackend[Backend container]
+        LocalDB[(Postgres container)]
+    end
+```
+
+**Request flow for a typical session:**
+
+```text
+Upload CSV
+   -> Backend profiles + validates it
+   -> CSV content + metadata saved to Postgres (datasets table)
+
+Pick target column + models, run experiment
+   -> Backend preprocesses (impute, scale, one-hot encode)
+   -> Trains Logistic Regression / Random Forest / XGBoost
+   -> Evaluates (accuracy, precision, recall, F1, ROC-AUC)
+   -> Serializes the trained pipeline and saves it to Postgres,
+      along with the results (experiments table)
+
+Register a model
+   -> Creates a `models` row pointing at the already-saved artifact
+
+Predict / Explain
+   -> Loads the saved pipeline from Postgres
+   -> Returns a prediction + probability, or a SHAP-based explanation
+
+AI Assistant
+   -> Sends the dataset profile / experiment results to an LLM
+   -> Backend validates the LLM's JSON response before trusting it
+   -> Returns analysis / a suggested experiment plan / a plain-language explanation
+```
+
+> **Why artifacts live in Postgres, not on disk:** free-tier PaaS hosting
+> (this project uses Render) runs the web service on an *ephemeral*
+> filesystem — anything written to local disk disappears on every
+> restart, redeploy, or free-tier spin-down. Postgres is the only
+> genuinely persistent storage available, so both the uploaded CSV
+> content and the trained model artifacts are stored directly as database
+> columns rather than as files on disk.
+
+---
+
+## 🖼️ Screenshots
 
 ### Dashboard
 ![Dashboard](docs/screenshots/dashboard.jpg)
@@ -43,60 +168,7 @@ just notebooks.
 
 ---
 
-## Architecture
-
-```mermaid
-flowchart TD
-    User[User's Browser] -->|HTTP| Frontend[Next.js Frontend<br/>Dashboard · Datasets · Experiments · Models · Playground · Assistant]
-    Frontend -->|REST API| Backend[FastAPI Backend]
-
-    Backend --> Profiler[Profiler Service<br/>pandas-based dataset profiling]
-    Backend --> Validator[Validator Service<br/>structural + target checks]
-    Backend --> Trainer[Trainer Service<br/>scikit-learn + XGBoost pipelines]
-    Backend --> Explainer[Explainer Service<br/>SHAP]
-    Backend --> LLM[LLM Service<br/>Groq / Llama 3.3]
-
-    Trainer --> Artifacts[(Model Artifacts<br/>joblib .pkl files)]
-    Backend --> DB[(PostgreSQL<br/>datasets · experiments · models)]
-
-    LLM -.->|validated JSON only| Backend
-
-    subgraph Docker Compose
-        Frontend
-        Backend
-        DB
-    end
-```
-
-**Request flow for a typical session:**
-
-```text
-Upload CSV
-   -> Backend profiles + validates it
-   -> Saved to disk + Postgres (datasets table)
-
-Pick target column + models, run experiment
-   -> Backend preprocesses (impute, scale, one-hot encode)
-   -> Trains Logistic Regression / Random Forest / XGBoost
-   -> Evaluates (accuracy, precision, recall, F1, ROC-AUC)
-   -> Saves trained pipeline to disk, saves results to Postgres
-
-Register a model
-   -> Creates a `models` row pointing at the already-saved artifact
-
-Predict / Explain
-   -> Loads the saved pipeline
-   -> Returns a prediction + probability, or a SHAP-based explanation
-
-AI Assistant
-   -> Sends the dataset profile / experiment results to an LLM
-   -> Backend validates the LLM's JSON response before trusting it
-   -> Returns analysis / a suggested experiment plan / a plain-language explanation
-```
-
----
-
-## Tech Stack
+## 🧰 Tech Stack
 
 | Layer | Technology |
 |---|---|
@@ -106,42 +178,114 @@ AI Assistant
 | Database | PostgreSQL, SQLAlchemy |
 | LLM | Groq (Llama 3.3 70B) |
 | Testing | pytest, FastAPI TestClient, SQLite (test DB) |
-| Infrastructure | Docker, Docker Compose |
+| Infrastructure | Docker, Docker Compose (local dev) · Render (backend + Postgres) · Vercel (frontend) |
 
 ---
 
-## Features
+## 🚀 Getting Started
 
-- **Dataset upload & profiling** -- row/column counts, missing values,
-  duplicates, per-column statistics for numerical and categorical columns
-- **Data validation** -- duplicate rows, empty/constant columns,
-  high-cardinality ID-like columns, missing target values, class imbalance
-- **Model training** -- Logistic Regression, Random Forest, XGBoost, via a
-  shared pluggable training interface with a proper preprocessing pipeline
-  (median/mode imputation, scaling, one-hot encoding) that avoids data
-  leakage (fit on training data only)
-- **Experiment tracking** -- every run persisted to PostgreSQL: metrics,
-  hyperparameters, training time, timestamp, reproducible via a stored
-  random seed
-- **Model registry** -- register a trained experiment as a versioned model,
-  backed by a saved joblib artifact containing the full
-  preprocessing + model pipeline
-- **Prediction API** -- raw JSON in, decoded prediction + probability out
-- **Explainability (SHAP)** -- global feature importance per model, and
-  signed per-feature contributions for a single prediction
-- **AI Assistant** -- LLM-backed dataset analysis, experiment planning, and
-  results explanation, with structural *and* semantic validation of every
-  LLM response before it's trusted (the LLM is an assistant, never the ML
-  engine, and never executes arbitrary code)
-- **Full test suite** -- 34 tests covering profiling, validation, training
-  (including a reproducibility check), and API endpoints (including error
-  paths), run against an isolated in-memory test database
-- **Fully Dockerized** -- one `docker compose up` brings up Postgres, the
-  FastAPI backend, and the Next.js frontend together
+### Requirements
+
+- Python 3.11+
+- Node.js & npm
+- Docker Desktop (recommended path)
+- A free [Groq API key](https://console.groq.com)
+
+### Option 1 — Docker (recommended)
+
+The whole stack — Postgres, backend, frontend — runs with one command.
+
+```bash
+# 1. Copy the env template and fill in GROQ_API_KEY
+cp backend/.env.example backend/.env
+
+# 2. From the project root
+docker compose up --build
+```
+
+Then open:
+- Frontend → http://localhost:3000
+- Backend API docs → http://localhost:8000/docs
+
+### Option 2 — Run locally without Docker
+
+**Backend:**
+```bash
+cd backend
+python -m venv venv
+venv\Scripts\activate        # Windows
+source venv/bin/activate     # Mac/Linux
+
+pip install -r requirements.txt
+
+cp .env.example .env         # fill in DATABASE_URL and GROQ_API_KEY
+uvicorn app.main:app --reload
+```
+
+**Frontend** (separate terminal):
+```bash
+cd frontend
+npm install
+
+# create .env.local:
+# NEXT_PUBLIC_API_URL=http://localhost:8000
+
+npm run dev
+```
 
 ---
 
-## Project Structure
+## 📡 API Endpoints Overview
+
+Full interactive documentation (Swagger) is available at `/docs` on the
+running backend — live at
+[forge-ml.onrender.com/docs](https://forge-ml.onrender.com/docs).
+
+### Datasets
+- **POST** `/api/datasets/upload` → upload + profile + validate a CSV
+- **GET** `/api/datasets` → list all datasets
+- **GET** `/api/datasets/{id}` → dataset detail + full profile
+
+### Experiments
+- **POST** `/api/experiments` → train one or more models on a dataset
+- **GET** `/api/experiments` → list all experiments
+- **GET** `/api/experiments/{id}` → single experiment detail
+
+### Models
+- **POST** `/api/models/register` → register an experiment as a versioned model
+- **GET** `/api/models` → list registered models
+- **POST** `/api/models/{id}/predict` → get a prediction + probability
+- **GET** `/api/models/{id}/explain` → global SHAP feature importance
+- **POST** `/api/models/{id}/explain` → SHAP explanation for one prediction
+
+### AI Assistant
+- **POST** `/api/assistant/analyze-dataset` → LLM preprocessing recommendations + risks
+- **POST** `/api/assistant/create-plan` → LLM-suggested experiment plan (validated)
+- **POST** `/api/assistant/analyze-experiments` → plain-language comparison of real results
+
+---
+
+## 🧪 Running the Tests
+
+```bash
+cd backend
+pytest -v
+```
+
+Runs against an isolated in-memory SQLite database (`tests/conftest.py`) —
+never touches real Postgres data.
+
+| Test file | Covers | Count |
+|---|---|---|
+| `test_profiler.py` | Dataset profiling logic | 7 |
+| `test_validator.py` | Structural and target validation | 10 |
+| `test_trainer.py` | Training, incl. a reproducibility check | 6 |
+| `test_api_datasets.py` | Dataset upload/list/detail endpoints | 5 |
+| `test_api_experiments.py` | Experiment, registry, prediction (incl. end-to-end) | 5 |
+
+---
+
+## 📂 Project Structure
 
 ```
 forgeML/
@@ -192,106 +336,52 @@ forgeML/
 
 ---
 
-## Running the Project
+## ☁️ Deployment
 
-### Option 1 — Docker (recommended)
-
-The whole stack — Postgres, backend, frontend — runs with one command.
-
-1. Copy `backend/.env.example` to `backend/.env` and fill in a `GROQ_API_KEY`
-   (free tier available at [console.groq.com](https://console.groq.com)).
-
-2. From the project root:
-   ```bash
-   docker compose up --build
-   ```
-
-3. Open:
-   - Frontend: http://localhost:3000
-   - Backend API docs: http://localhost:8000/docs
-
-### Option 2 — Running locally without Docker
-
-**Backend:**
-```bash
-cd backend
-python -m venv venv
-venv\Scripts\activate        # Windows
-source venv/bin/activate     # Mac/Linux
-
-pip install -r requirements.txt
-
-# Start Postgres (if not already running) -- see docker-compose.yml
-# for the expected credentials, or run your own local instance.
-
-cp .env.example .env         # fill in DATABASE_URL and GROQ_API_KEY
-
-uvicorn app.main:app --reload
-```
-
-**Frontend** (in a separate terminal):
-```bash
-cd frontend
-npm install
-
-# create .env.local:
-# NEXT_PUBLIC_API_URL=http://localhost:8000
-
-npm run dev
-```
+- **Backend + PostgreSQL:** [Render](https://render.com) — deploys
+  directly from `backend/Dockerfile`; `DATABASE_URL` and `GROQ_API_KEY`
+  set via Render's dashboard.
+- **Frontend:** [Vercel](https://vercel.com) — deploys directly from
+  `frontend/`, with `NEXT_PUBLIC_API_URL` pointed at the live backend.
+- CORS allows both `localhost:3000` (local dev) and the live Vercel domain.
 
 ---
 
-## Running the Tests
+## 📊 Example Dataset
 
-```bash
-cd backend
-pytest -v
-```
-
-The suite runs against an isolated in-memory SQLite database (see
-`tests/conftest.py`) -- it never touches your real Postgres data.
-
-Coverage:
-- `test_profiler.py` -- dataset profiling logic (7 tests)
-- `test_validator.py` -- structural and target validation (10 tests)
-- `test_trainer.py` -- training, including a reproducibility check (6 tests)
-- `test_api_datasets.py` -- dataset upload/list/detail endpoints (5 tests)
-- `test_api_experiments.py` -- experiment creation, model registration, and
-  prediction, including an end-to-end integration test (5 tests)
-
----
-
-## Example Dataset
-
-This project was built and tested against the
+Built and tested against the
 [Loan Prediction Problem Dataset](https://www.kaggle.com/datasets/altruistdelhite04/loan-prediction-problem-dataset)
-(614 rows, 13 columns, binary classification target `Loan_Status`) -- but
-works with any CSV with a classification target.
+(614 rows, 13 columns, binary target `Loan_Status`) — but works with any
+CSV with a classification target.
 
 ---
 
-## Development Roadmap
+## 🗺️ Development Roadmap
 
 Built in 8 phases, each committed and tagged separately:
 
 | Phase | What | Status |
 |---|---|---|
-| 1 | Dataset upload, profiling, structural validation | Done |
-| 2 | Preprocessing pipeline, model training, evaluation | Done |
-| 3 | PostgreSQL persistence for datasets and experiments | Done |
-| 4 | Model registry and prediction API | Done |
-| 5 | SHAP-based explainability | Done |
-| 6 | Next.js dashboard (all pages) | Done |
-| 7 | LLM-assisted analysis, planning, and results explanation | Done |
-| 8 | Docker, tests, documentation | Done |
+| 1 | Dataset upload, profiling, structural validation | ✅ |
+| 2 | Preprocessing pipeline, model training, evaluation | ✅ |
+| 3 | PostgreSQL persistence for datasets and experiments | ✅ |
+| 4 | Model registry and prediction API | ✅ |
+| 5 | SHAP-based explainability | ✅ |
+| 6 | Next.js dashboard (all pages) | ✅ |
+| 7 | LLM-assisted analysis, planning, results explanation | ✅ |
+| 8 | Docker, tests, documentation, live deployment | ✅ |
 
-**Not implemented (intentionally out of scope for this version):**
-hyperparameter optimization, model drift monitoring, multi-user auth,
-cloud deployment, regression tasks (classification only).
+**Intentionally out of scope:** hyperparameter optimization, model drift
+monitoring, multi-user auth, regression tasks (classification only).
 
 ---
 
-## License
+## 📄 License
 
-Built as a personal portfolio/learning project.
+MIT — built as a personal portfolio/learning project.
+
+<div align="center">
+
+Built by [Anas](https://github.com/DevAnas19)
+
+</div>
